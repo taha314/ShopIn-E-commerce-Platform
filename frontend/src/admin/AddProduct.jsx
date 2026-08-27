@@ -1,6 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import API_URL from '../config/api';
 
 const AddProduct = () => {
   const { user } = useContext(AuthContext);
@@ -31,7 +32,7 @@ const AddProduct = () => {
     data.append('image', image);
 
     try {
-      const res = await fetch('/api/products', {
+      const res = await fetch(`${API_URL}/api/products`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${user.token}` },
         body: data

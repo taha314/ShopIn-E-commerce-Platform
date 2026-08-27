@@ -3,6 +3,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { Link, useNavigate } from 'react-router-dom';
 import { removeFromCart, updateQuantity } from '../redux/cartSlice';
 import '../styles/cart.css';
+import API_URL from '../config/api';
 
 const Cart = () => {
   const cartItems = useSelector((state) => state.cart.cartItems);
@@ -13,7 +14,7 @@ const Cart = () => {
   useEffect(() => {
     const loadStock = async () => {
       const entries = await Promise.all(cartItems.map(async (item) => {
-        const response = await fetch(`/api/products/${item.productId}`);
+        const response = await fetch(`${API_URL}/api/products/${item.productId}`);
         if (!response.ok) return [item.productId, item.stock];
         const product = await response.json();
         return [item.productId, product.stock];

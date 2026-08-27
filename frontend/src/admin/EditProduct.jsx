@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useParams, useNavigate } from 'react-router-dom';
+import API_URL from '../config/api';
 
 const EditProduct = () => {
   const { id } = useParams();
@@ -13,7 +14,7 @@ const EditProduct = () => {
 
   useEffect(() => {
     const fetchProduct = async () => {
-      const res = await fetch(`/api/products/${id}`);
+      const res = await fetch(`${API_URL}/api/products/${id}`);
       const data = await res.json();
       setFormData({ name: data.name, description: data.description, price: data.price, category: data.category, stock: data.stock });
     };
@@ -31,7 +32,7 @@ const EditProduct = () => {
     data.append('stock', formData.stock);
     if (image) data.append('image', image);
 
-    const res = await fetch(`/api/products/${id}`, {
+    const res = await fetch(`${API_URL}/api/products/${id}`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${user.token}` },
       body: data

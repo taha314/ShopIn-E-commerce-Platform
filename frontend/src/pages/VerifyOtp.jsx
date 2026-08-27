@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import '../styles/auth.css';
+import API_URL from '../config/api';
 
 const VerifyOtp = () => {
     const location = useLocation();
@@ -16,7 +17,7 @@ const VerifyOtp = () => {
         setError('');
 
         try {
-            const response = await fetch('/api/auth/verify-otp', {
+            const response = await fetch(`${API_URL}/api/auth/verify-otp`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, otp })

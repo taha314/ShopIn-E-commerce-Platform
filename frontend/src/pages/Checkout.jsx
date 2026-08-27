@@ -3,6 +3,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { clearPurchasedItems } from '../redux/cartSlice';
+import API_URL from '../config/api';
 
 const Checkout = () => {
   const { user } = useContext(AuthContext);
@@ -36,7 +37,7 @@ const Checkout = () => {
         if (process.env.NODE_ENV !== 'production') {
           console.debug('[Safepay] calling verification endpoint', { orderId, tracker });
         }
-        const response = await fetch('/api/payment/verify', {
+        const response = await fetch(`${API_URL}/api/payment/verify`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -64,7 +65,7 @@ const Checkout = () => {
 
   const handlePayment = async () => {
     try {
-      const saveOrderRes = await fetch('/api/orders', {
+      const saveOrderRes = await fetch(`${API_URL}/api/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -75,7 +76,7 @@ const Checkout = () => {
       const savedOrder = await saveOrderRes.json().catch(() => ({}));
       if (!saveOrderRes.ok) throw new Error(savedOrder.message || 'Unable to create order');
 
-      const orderRes = await fetch('/api/payment/order', {
+      const orderRes = await fetch(`${API_URL}/api/payment/order`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
