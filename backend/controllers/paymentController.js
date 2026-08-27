@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const Order = require('../model/Order');
 const Product = require('../model/Product');
 const Safepay = require('@sfpy/node-core');
-const { getSafepayConfig, getMissingSafepayConfig } = require('../config/safepay');
+const { getSafepayConfig, getLegacySafepayVariables, getMissingSafepayConfig } = require('../config/safepay');
 
 const getSafepay = (secretKey, environment) => Safepay(secretKey, {
     authType: 'secret',
@@ -12,6 +12,36 @@ const getSafepay = (secretKey, environment) => Safepay(secretKey, {
         : 'https://sandbox.api.getsafepay.com'
 });
 const getTracker = (payload) => payload?.data?.tracker || {};
+
+const getCallbackValue = (value, names) => {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+
+    // Safepay returns callback values as query parameters. Never allow an
+    // entire query string to reach an ObjectId query or the reporter endpoint.
+    if (trimmed.includes('?') || trimmed.includes('&') || trimmed.includes('=')) {
+        const query = trimmed.includes('?') ? trimmed.slice(trimmed.indexOf('?') + 1) : trimmed;
+        const params = new URLSearchParams(query);
+        for (const name of names) {
+            const parsed = params.get(name)?.trim();
+            if (parsed) return parsed;
+        }
+        return undefined;
+    }
+    return trimmed;
+};
+
+const getPaymentConfigurationError = (required) => {
+    const config = getSafepayConfig();
+    const missing = getMissingSafepayConfig(config, required);
+    const legacyVariables = getLegacySafepayVariables();
+    if (!missing.length) return { config };
+
+    const details = [`Missing: ${missing.join(', ')}`];
+    if (legacyVariables.length) details.push(`Unsupported variables: ${legacyVariables.join(', ')}`);
+    return { message: `Payment service is not configured. ${details.join('. ')}` };
+};
 
 const getSafepayErrorDetails = (error) => ({
     status: error?.status,
@@ -78,9 +108,9 @@ const createOrder = async (req, res) => {
         if (!order) return res.status(404).json({ message: 'Order not found' });
         if (order.paymentStatus === 'Paid') return res.status(409).json({ message: 'Order is already paid' });
 
-        const config = getSafepayConfig();
-        const missing = getMissingSafepayConfig(config, ['SAFEPAY_API_KEY', 'SAFEPAY_SECRET_KEY']);
-        if (missing.length) return res.status(503).json({ message: `Payment service is not configured. Missing: ${missing.join(', ')}` });
+        const configuration = getPaymentConfigurationError(['SAFEPAY_API_KEY', 'SAFEPAY_SECRET_KEY']);
+        if (configuration.message) return res.status(503).json({ message: configuration.message });
+        const { config } = configuration;
         const safepay = getSafepay(config.secretKey, config.environment);
         const session = await safepay.payments.session.setup({
             merchant_api_key: config.apiKey,
@@ -128,18 +158,28 @@ const createOrder = async (req, res) => {
 
 const verifyPayment = async (req, res) => {
     try {
-        const { orderId, tracker } = req.body;
+        const orderId = getCallbackValue(req.body?.orderId, ['orderId', 'order_id']);
+        const tracker = getCallbackValue(req.body?.tracker, ['tracker']);
         logPaymentVerification('verification requested', { orderId, tracker });
-        if (!orderId || !tracker) return res.status(400).json({ message: 'orderId and tracker are required' });
-        if (!mongoose.isValidObjectId(orderId)) return res.status(400).json({ message: 'Invalid orderId' });
-        const order = await Order.findOne({ _id: orderId, userId: req.user._id });
+        if (!tracker) return res.status(400).json({ message: 'tracker is required' });
+        if (orderId && !mongoose.isValidObjectId(orderId)) return res.status(400).json({ message: 'Invalid orderId' });
+        const orderQuery = { userId: req.user._id, paymentId: tracker };
+        if (orderId) orderQuery._id = orderId;
+        const order = await Order.findOne(orderQuery);
         if (!order || !order.paymentId || tracker !== order.paymentId) {
             logPaymentVerification('tracker/order mismatch', { orderFound: Boolean(order), trackerMatches: order?.paymentId === tracker });
             return res.status(404).json({ message: 'Payment not found' });
         }
-        const config = getSafepayConfig();
-        const missing = getMissingSafepayConfig(config, ['SAFEPAY_SECRET_KEY']);
-        if (missing.length) return res.status(503).json({ message: `Payment service is not configured. Missing: ${missing.join(', ')}` });
+        if (order.paymentStatus === 'Paid') {
+            return res.json({
+                orderId: order._id,
+                paymentStatus: order.paymentStatus,
+                itemIds: order.items.map((item) => item.productId.toString())
+            });
+        }
+        const configuration = getPaymentConfigurationError(['SAFEPAY_SECRET_KEY']);
+        if (configuration.message) return res.status(503).json({ message: configuration.message });
+        const { config } = configuration;
         const safepay = getSafepay(config.secretKey, config.environment);
         logPaymentVerification('calling Safepay reporter', { method: 'GET', tracker });
         const response = await safepay.reporter.payments.fetch(tracker);
@@ -177,27 +217,34 @@ const verifyPayment = async (req, res) => {
 };
 
 const webhook = async (req, res) => {
-    const config = getSafepayConfig();
+    const configuration = getPaymentConfigurationError(['SAFEPAY_WEBHOOK_SECRET']);
+    if (configuration.message) return res.status(503).json({ message: configuration.message });
+    const { config } = configuration;
     const secret = config.webhookSecret;
     const signature = req.get('X-SFPY-SIGNATURE');
-    if (!secret) return res.status(503).json({ message: 'Webhook is not configured. Missing: SAFEPAY_WEBHOOK_SECRET' });
     if (!signature || !req.rawBody) return res.status(400).json({ message: 'Invalid webhook' });
     const expected = crypto.createHmac('sha512', secret).update(req.rawBody).digest('hex');
     if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
         return res.status(400).json({ message: 'Invalid webhook' });
     }
-    const event = req.body;
-    const payment = event?.data || {};
-    const orderId = payment.metadata?.order_id;
+    const event = req.body || {};
+    const payment = event.data || event;
+    const notification = payment.notification || event.notification || {};
+    const metadata = payment.metadata || notification.metadata || {};
+    const orderId = getCallbackValue(metadata.order_id || payment.order_id || event.order_id, ['orderId', 'order_id']);
+    const tracker = getCallbackValue(payment.tracker || notification.tracker || event.tracker, ['tracker']);
+    const state = payment.state || notification.state;
+    const paymentSucceeded = event.type === 'payment.succeeded' || state === 'PAID' || state === 'TRACKER_ENDED';
+    const paymentFailed = event.type === 'payment.failed' || ['FAILED', 'TRACKER_FAILED', 'TRACKER_CANCELLED', 'TRACKER_EXPIRED'].includes(state);
     const order = mongoose.isValidObjectId(orderId) ? await Order.findById(orderId) : null;
-    if (order && order.paymentId === payment.tracker && event.type === 'payment.succeeded' && !order.stockDeducted) {
+    if (order && order.paymentId === tracker && paymentSucceeded && !order.stockDeducted) {
         try {
-            await finalizePaidOrder(order._id, payment.tracker);
+            await finalizePaidOrder(order._id, tracker);
         } catch (error) {
             console.error('Inventory finalization failed:', error.message);
             return res.status(409).json({ message: 'Unable to complete order because stock is unavailable' });
         }
-    } else if (order && order.paymentId === payment.tracker && event.type === 'payment.failed' && order.paymentStatus !== 'Paid') {
+    } else if (order && order.paymentId === tracker && paymentFailed && order.paymentStatus !== 'Paid') {
         order.paymentStatus = 'Failed';
         await order.save();
     }
