@@ -9,7 +9,7 @@ const generateToken = (id) => {
 }
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000;
-const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+const OTP_RESEND_COOLDOWN_MS = 10 * 1000;
 
 const createOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 
