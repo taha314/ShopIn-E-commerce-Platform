@@ -11,24 +11,49 @@ const Register = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
     try {
       const res = await fetch(`${API_URL}/api/auth/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password })
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+        }),
       });
+
       const data = await res.json();
-      if (res.ok) {
-        alert('Registration successful! Please check your email for the OTP.');
-        navigate('/verify-otp', { state: { email } });
-      } else {
-        alert(data.message);
+
+      console.log("REGISTER STATUS:", res.status);
+      console.log("REGISTER RESPONSE:", data);
+
+      if (!res.ok) {
+        alert(data.message || 'Unable to register. Please try again.');
+        return;
       }
+
+      if (data.verificationRequired) {
+        alert(data.message || 'OTP sent to your email.');
+
+        // Use the email typed by the user as a fallback
+        navigate('/verify-otp', {
+          state: {
+            email: data.email || email,
+          },
+        });
+
+        return;
+      }
+
+      alert(data.message || 'Registration completed.');
     } catch (error) {
-      console.error(error);
+      console.error("REGISTER ERROR:", error);
+      alert("Something went wrong. Please try again.");
     }
   };
-
   return (
     <div className="auth-container">
       <form onSubmit={handleSubmit} className="auth-form">

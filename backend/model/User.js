@@ -29,6 +29,9 @@ const userSchema = new mongoose.Schema({
     otpExpires: {
         type: Date,
     },
+    otpLastSentAt: {
+        type: Date,
+    },
 });
 
 module.exports = mongoose.model("User", userSchema);
