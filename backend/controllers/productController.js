@@ -32,10 +32,10 @@ const createProduct = async (req, res) => {
         if (!Number.isInteger(stockValue) || stockValue < 0) {
             return res.status(400).json({ message: 'Stock must be a non-negative integer' });
         }
-        let imageUrl = "";
-        if (req.file) {
-            const result = await cloudinary.uploader.upload(req.file.path);
-            imageUrl = result.secure_url;
+        const imageUrls = [];
+        for (const file of req.files || []) {
+            const result = await cloudinary.uploader.upload(file.path);
+            imageUrls.push(result.secure_url);
         }
         const product = new Product({
             name,
@@ -43,7 +43,8 @@ const createProduct = async (req, res) => {
             description,
             price,
             stock: stockValue,
-            imageUrl,
+            imageUrl: imageUrls[0] || "",
+            imageUrls,
         });
         const savedProduct = await product.save();
         res.status(201).json(savedProduct);
