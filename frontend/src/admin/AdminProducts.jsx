@@ -6,14 +6,36 @@ import API_URL from '../config/api';
 const AdminProducts = () => {
   const { user } = useContext(AuthContext);
   const [products, setProducts] = useState([]);
+  const [error, setError] = useState('');
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchProducts = async () => {
-      const res = await fetch(`${API_URL}/api/products`);
-      const data = await res.json();
-      setProducts(Array.isArray(data) ? data : []);
+      try {
+        const res = await fetch(`${API_URL}/api/products`);
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          throw new Error(data.message || 'Unable to load products');
+        }
+
+        if (isMounted) {
+          setProducts(Array.isArray(data) ? data : []);
+          setError('');
+        }
+      } catch (fetchError) {
+        if (isMounted) {
+          setError(fetchError.message || 'Unable to load products');
+        }
+      }
     };
+
     fetchProducts();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleDelete = async (id) => {
@@ -34,6 +56,8 @@ const AdminProducts = () => {
         <h2 style={{ color: '#f97316' }}>Manage Products</h2>
         <Link to="/admin/add-product" className="btn">+ Add Product</Link>
       </div>
+
+      {error && <p style={{ color: '#fca5a5' }}>{error}</p>}
 
       <div style={{ overflowX: 'auto' }}>
         <table style={tableStyle}>
